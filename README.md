@@ -1,0 +1,161 @@
+# MLS Data Enrichment and Cleaning Pipeline
+
+This folder now has a reusable, function-based pipeline for:
+
+1. Enriching MLS sold/listings data with monthly mortgage rates from FRED
+2. Cleaning and validating MLS data for analysis-ready output
+3. Producing a data quality report with row counts, dtypes, and validation flags
+
+## Files and Purpose
+
+- `mortgage.py`
+  - Fetches mortgage rates from FRED
+  - Resamples to monthly averages
+  - Merges rates onto sold/listings datasets by `year_month`
+  - Validates that merged rate values are not null
+
+- `mls_data_cleaning_pipeline.py`
+  - Reusable cleaning functions
+  - Date parsing, type coercion, missing value handling
+  - Invalid numeric checks and date/geographic quality flags
+  - Exports cleaned datasets and a JSON quality report
+
+- `run_mls_cleaning.py`
+  - Cleaning-only runner
+  - Uses `sold_with_rates.csv` and `listings_with_rates.csv` if available
+  - Falls back to `sold.csv` and `listings.csv`
+
+- `run_full_mls_pipeline.py`
+  - End-to-end runner
+  - Runs mortgage enrichment first, then cleaning
+
+## Quick Start
+
+Run from this folder:
+
+```bash
+cd /accounts/masters/gongyaoxu/idx
+```
+
+### Option A: End-to-End Pipeline (recommended)
+
+```bash
+python run_full_mls_pipeline.py
+```
+
+This will generate:
+
+- `sold_with_rates.csv`
+- `listings_with_rates.csv`
+- `cleaned_sold_analysis_ready.csv`
+- `cleaned_listings_analysis_ready.csv`
+- `mls_cleaning_report.json`
+
+### Option B: Cleaning Only
+
+```bash
+python run_mls_cleaning.py
+```
+
+## Function Usage Examples
+
+### 1) Mortgage Enrichment Functions
+
+```python
+from mortgage import enrich_real_estate_data
+
+sold_with_rates, listings_with_rates = enrich_real_estate_data(
+    mortgage_url="https://fred.stlouisfed.org/graph/fredgraph.csv?id=MORTGAGE30US",
+    sold_files=["CRMLSSold202602.csv", "CRMLSSold202603.csv"],
+    listings_files=["CRMLSListing202602.csv", "CRMLSListing202603.csv"],
+    sold_date_column="CloseDate",
+    listings_date_column="ListingContractDate",
+    sold_output="sold_with_rates.csv",
+    listings_output="listings_with_rates.csv",
+)
+```
+
+### 2) Cleaning Pipeline Functions
+
+```python
+from mls_data_cleaning_pipeline import CleaningConfig, process_mls_files
+
+config = CleaningConfig(
+    invalid_numeric_strategy="remove",   # or "flag"
+    drop_missing_column_threshold=0.98,
+)
+
+summary = process_mls_files(
+    sold_input_path="sold_with_rates.csv",
+    listings_input_path="listings_with_rates.csv",
+    sold_output_path="cleaned_sold_analysis_ready.csv",
+    listings_output_path="cleaned_listings_analysis_ready.csv",
+    report_output_path="mls_cleaning_report.json",
+    config=config,
+)
+
+print(summary["sold"]["rows_before"], "->", summary["sold"]["rows_after"])
+print(summary["listings"]["rows_before"], "->", summary["listings"]["rows_after"])
+```
+
+### 3) Cleaning a DataFrame Directly
+
+```python
+import pandas as pd
+from mls_data_cleaning_pipeline import CleaningConfig, clean_mls_dataframe
+
+raw_df = pd.read_csv("sold_with_rates.csv")
+config = CleaningConfig(invalid_numeric_strategy="remove")
+clean_df, clean_summary = clean_mls_dataframe(raw_df, dataset_name="sold", config=config)
+```
+
+## What Gets Validated During Cleaning
+
+### Date conversion
+
+- `CloseDate`
+- `PurchaseContractDate`
+- `ListingContractDate`
+- `ContractStatusChangeDate`
+
+### Numeric validity checks
+
+- `ClosePrice <= 0`
+- `LivingArea <= 0`
+- `DaysOnMarket < 0`
+- `BedroomsTotal < 0`
+- `BathroomsTotalInteger < 0`
+
+### Date consistency flags
+
+- `listing_after_close_flag`
+- `purchase_after_close_flag`
+- `negative_timeline_flag`
+
+### Geographic quality flags
+
+- `missing_coordinate_flag`
+- `zero_coordinate_flag`
+- `positive_longitude_flag`
+- `implausible_coordinate_flag`
+- `invalid_geographic_flag`
+
+## Report Contents
+
+`mls_cleaning_report.json` includes:
+
+- before/after row and column counts
+- date parse failure counts
+- columns dropped
+- missing value fill counts
+- numeric coercion null impact
+- invalid numeric counts and removed rows
+- date consistency flag counts
+- geographic flag counts
+- dtype confirmation for key date/numeric fields
+
+## Notes
+
+- `invalid_numeric_strategy="remove"` removes invalid rows after flagging them.
+- `invalid_numeric_strategy="flag"` keeps all rows and only marks invalid records.
+- The geographic plausibility check uses an approximate California bounding box.
