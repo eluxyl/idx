@@ -46,6 +46,18 @@ DEFAULT_MISSING_FILL_MAP = {
     "StateOrProvince": "Unknown",
 }
 
+DEFAULT_PLOT_COLUMNS = [
+    "ClosePrice",
+    "ListPrice",
+    "OriginalListPrice",
+    "LivingArea",
+    "LotSizeAcres",
+    "BedroomsTotal",
+    "BathroomsTotalInteger",
+    "DaysOnMarket",
+    "YearBuilt",
+]
+
 
 @dataclass
 class CleaningConfig:
@@ -55,6 +67,12 @@ class CleaningConfig:
     drop_missing_column_threshold: Optional[float] = 0.98
     invalid_numeric_strategy: str = "remove"  # "remove" or "flag"
     extra_drop_columns: Optional[List[str]] = None
+    only_residential: bool = False
+    residential_property_types: Optional[List[str]] = None
+    high_cardinality_threshold: Optional[float] = None
+    generate_plots: bool = False
+    plot_output_dir: str = "."
+    plot_columns: Optional[List[str]] = None
 
     def __post_init__(self) -> None:
         if self.date_columns is None:
@@ -65,6 +83,10 @@ class CleaningConfig:
             self.missing_fill_map = dict(DEFAULT_MISSING_FILL_MAP)
         if self.extra_drop_columns is None:
             self.extra_drop_columns = []
+        if self.residential_property_types is None:
+            self.residential_property_types = ["Residential"]
+        if self.plot_columns is None:
+            self.plot_columns = list(DEFAULT_PLOT_COLUMNS)
 
 
 def _existing_columns(df: pd.DataFrame, cols: Iterable[str]) -> List[str]:
@@ -92,8 +114,10 @@ def drop_redundant_columns(
     df: pd.DataFrame,
     drop_missing_column_threshold: Optional[float] = None,
     extra_drop_columns: Optional[Iterable[str]] = None,
+    protected_columns: Optional[Iterable[str]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
     out = df.copy()
+    protected = set(protected_columns or [])
 
     dropped_duplicate_suffix: List[str] = []
     for col in list(out.columns):
@@ -110,7 +134,10 @@ def drop_redundant_columns(
     if drop_missing_column_threshold is not None:
         missing_rates = out.isna().mean()
         dropped_high_missing = (
-            missing_rates[missing_rates >= drop_missing_column_threshold]
+            missing_rates[
+                (missing_rates >= drop_missing_column_threshold)
+                & (~missing_rates.index.isin(protected))
+            ]
             .index.tolist()
         )
         if dropped_high_missing:
@@ -118,7 +145,9 @@ def drop_redundant_columns(
 
     dropped_extra: List[str] = []
     if extra_drop_columns:
-        dropped_extra = _existing_columns(out, list(extra_drop_columns))
+        dropped_extra = [
+            c for c in _existing_columns(out, list(extra_drop_columns)) if c not in protected
+        ]
         if dropped_extra:
             out = out.drop(columns=dropped_extra)
 
@@ -128,6 +157,51 @@ def drop_redundant_columns(
         "dropped_extra": dropped_extra,
     }
     return out, info
+
+
+def drop_high_cardinality_columns(
+    df: pd.DataFrame,
+    threshold: Optional[float],
+    protected_columns: Optional[Iterable[str]] = None,
+) -> Tuple[pd.DataFrame, List[str]]:
+    out = df.copy()
+    protected = set(protected_columns or [])
+    if threshold is None or len(out) == 0:
+        return out, []
+
+    dropped: List[str] = []
+    object_cols = out.select_dtypes(include=["object"]).columns
+    for col in object_cols:
+        if col in protected:
+            continue
+        ratio = out[col].nunique(dropna=True) / len(out)
+        if ratio > threshold:
+            dropped.append(col)
+
+    if dropped:
+        out = out.drop(columns=dropped)
+    return out, dropped
+
+
+def filter_property_types(
+    df: pd.DataFrame,
+    enabled: bool,
+    allowed_property_types: Iterable[str],
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    out = df.copy()
+    summary = {
+        "enabled": enabled,
+        "allowed_property_types": list(allowed_property_types),
+        "rows_removed": 0,
+    }
+
+    if not enabled or "PropertyType" not in out.columns:
+        return out, summary
+
+    before = len(out)
+    out = out[out["PropertyType"].isin(allowed_property_types)].copy()
+    summary["rows_removed"] = int(before - len(out))
+    return out, summary
 
 
 def fill_missing_values(df: pd.DataFrame, fill_map: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, int]]:
@@ -278,12 +352,106 @@ def _dtype_confirmation(df: pd.DataFrame, columns: Iterable[str]) -> Dict[str, s
     return out
 
 
+def generate_distribution_plots(
+    df: pd.DataFrame,
+    dataset_name: str,
+    plot_output_dir: str | Path,
+    plot_columns: Iterable[str],
+) -> Dict[str, Any]:
+    # Lazy imports keep plotting optional for headless or lightweight environments.
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    out_dir = Path(plot_output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    cols = [c for c in plot_columns if c in df.columns]
+    if not cols:
+        return {
+            "enabled": True,
+            "plot_columns_used": [],
+            "histogram_path": None,
+            "boxplot_path": None,
+            "distribution_table": {},
+            "message": "No requested plot columns were found.",
+        }
+
+    plot_df = df.copy()
+    for c in cols:
+        plot_df[c] = pd.to_numeric(plot_df[c], errors="coerce")
+
+    distribution_table = (
+        plot_df[cols]
+        .describe(percentiles=[0.25, 0.75])
+        .T
+        .fillna(0)
+        .to_dict(orient="index")
+    )
+
+    hist_path = out_dir / f"{dataset_name}_distributions_histogram.png"
+    box_path = out_dir / f"{dataset_name}_distributions_boxplot.png"
+
+    plt.style.use("seaborn-v0_8-muted")
+    n_cols = 3
+    n_rows = (len(cols) + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(18, max(5 * n_rows, 6)))
+    axes = axes.flatten() if hasattr(axes, "flatten") else [axes]
+
+    log_hist_cols = {"ClosePrice", "ListPrice", "OriginalListPrice", "LotSizeAcres"}
+    for i, col in enumerate(cols):
+        sns.histplot(data=plot_df, x=col, kde=True, ax=axes[i], color="teal", bins=30)
+        axes[i].set_title(f"Histogram: {col}")
+        axes[i].set_ylabel("Frequency")
+        axes[i].set_xlabel("")
+        if col in log_hist_cols:
+            axes[i].set_yscale("log")
+            axes[i].set_title(f"Histogram: {col} (Log Frequency)")
+
+    for j in range(len(cols), len(axes)):
+        axes[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(hist_path)
+    plt.close(fig)
+
+    plt.style.use("ggplot")
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(18, max(5 * n_rows, 6)))
+    axes = axes.flatten() if hasattr(axes, "flatten") else [axes]
+
+    for i, col in enumerate(cols):
+        sns.boxplot(data=plot_df, x=col, ax=axes[i], color="#3498db", fliersize=3)
+        axes[i].set_title(f"Distribution: {col}")
+        axes[i].set_xlabel("")
+        if col == "LotSizeAcres":
+            axes[i].set_xscale("log")
+            axes[i].set_title(f"Distribution: {col} (Log Scale)")
+
+    for j in range(len(cols), len(axes)):
+        axes[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(box_path)
+    plt.close(fig)
+
+    return {
+        "enabled": True,
+        "plot_columns_used": cols,
+        "histogram_path": str(hist_path),
+        "boxplot_path": str(box_path),
+        "distribution_table": distribution_table,
+    }
+
+
 def clean_mls_dataframe(
     df: pd.DataFrame,
     dataset_name: str,
     config: Optional[CleaningConfig] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     cfg = config or CleaningConfig()
+    protected_columns = list(dict.fromkeys(cfg.date_columns + cfg.numeric_columns + ["PropertyType"]))
     summary: Dict[str, Any] = {
         "dataset": dataset_name,
         "rows_before": int(len(df)),
@@ -293,12 +461,27 @@ def clean_mls_dataframe(
     work, parse_failures = parse_date_columns(df, cfg.date_columns)
     summary["date_parse_failures"] = parse_failures
 
+    work, property_filter_summary = filter_property_types(
+        work,
+        enabled=cfg.only_residential,
+        allowed_property_types=cfg.residential_property_types,
+    )
+    summary["property_type_filter"] = property_filter_summary
+
     work, dropped_info = drop_redundant_columns(
         work,
         drop_missing_column_threshold=cfg.drop_missing_column_threshold,
         extra_drop_columns=cfg.extra_drop_columns,
+        protected_columns=protected_columns,
     )
     summary["dropped_columns"] = dropped_info
+
+    work, high_cardinality_dropped = drop_high_cardinality_columns(
+        work,
+        threshold=cfg.high_cardinality_threshold,
+        protected_columns=protected_columns,
+    )
+    summary["dropped_high_cardinality_columns"] = high_cardinality_dropped
 
     work, filled_counts = fill_missing_values(work, cfg.missing_fill_map)
     summary["missing_values_filled"] = filled_counts
@@ -332,6 +515,16 @@ def clean_mls_dataframe(
         col: int(work[col].isna().sum())
         for col in _existing_columns(work, cfg.date_columns + cfg.numeric_columns)
     }
+
+    if cfg.generate_plots:
+        summary["plot_summary"] = generate_distribution_plots(
+            work,
+            dataset_name=dataset_name,
+            plot_output_dir=cfg.plot_output_dir,
+            plot_columns=cfg.plot_columns,
+        )
+    else:
+        summary["plot_summary"] = {"enabled": False}
 
     return work, summary
 

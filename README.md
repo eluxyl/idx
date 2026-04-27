@@ -28,6 +28,7 @@ This folder now has a reusable, function-based pipeline for:
 - `run_full_mls_pipeline.py`
   - End-to-end runner
   - Runs mortgage enrichment first, then cleaning
+  - Includes argparse options for plot generation and cleaning parameter tuning
 
 ## Quick Start
 
@@ -42,6 +43,53 @@ cd /accounts/masters/gongyaoxu/idx
 ```bash
 python run_full_mls_pipeline.py
 ```
+
+Useful options (all have defaults):
+
+```bash
+python run_full_mls_pipeline.py \
+  --generate-plots \
+  --plot-output-dir . \
+  --invalid-numeric-strategy remove \
+  --drop-missing-column-threshold 0.5 \
+  --high-cardinality-threshold 0.9
+```
+
+Property-type options:
+
+```bash
+# Default behavior: keep Residential only
+python run_full_mls_pipeline.py
+
+# Keep all property types
+python run_full_mls_pipeline.py --include-all-property-types
+```
+
+### CLI Reference (run_full_mls_pipeline.py)
+
+| Argument | Default | Purpose |
+|---|---|---|
+| `--mortgage-url` | `https://fred.stlouisfed.org/graph/fredgraph.csv?id=MORTGAGE30US` | FRED mortgage CSV source |
+| `--sold-files` | `CRMLSSold202602.csv CRMLSSold202603.csv` | Sold input CSV files to combine |
+| `--listings-files` | `CRMLSListing202602.csv CRMLSListing202603.csv` | Listings input CSV files to combine |
+| `--sold-date-column` | `CloseDate` | Sold date used to create `year_month` |
+| `--listings-date-column` | `ListingContractDate` | Listings date used to create `year_month` |
+| `--sold-with-rates-output` | `sold_with_rates.csv` | Enriched sold output path |
+| `--listings-with-rates-output` | `listings_with_rates.csv` | Enriched listings output path |
+| `--cleaned-sold-output` | `cleaned_sold_analysis_ready.csv` | Final cleaned sold output path |
+| `--cleaned-listings-output` | `cleaned_listings_analysis_ready.csv` | Final cleaned listings output path |
+| `--report-output` | `mls_cleaning_report.json` | Cleaning report JSON path |
+| `--invalid-numeric-strategy` | `remove` | Either `remove` or `flag` invalid numeric rows |
+| `--drop-missing-column-threshold` | `0.5` | Drop columns with missing rate >= threshold |
+| `--high-cardinality-threshold` | `0.9` | Drop object columns when unique-ratio exceeds threshold |
+| `--disable-high-cardinality-drop` | `False` | Turn off high-cardinality dropping |
+| `--only-residential` | `True` | Keep only residential rows (unless overridden below) |
+| `--include-all-property-types` | `False` | Disable residential-only filtering |
+| `--residential-property-types` | `Residential` | Allowed values when residential filter is enabled |
+| `--extra-drop-columns` | *(empty)* | Additional columns to drop |
+| `--generate-plots` | `False` | Generate histogram and boxplot PNGs |
+| `--plot-output-dir` | `.` | Directory where plots are saved |
+| `--plot-columns` | `ClosePrice ListPrice OriginalListPrice LivingArea LotSizeAcres BedroomsTotal BathroomsTotalInteger DaysOnMarket YearBuilt` | Columns used for optional plots |
 
 This will generate:
 
