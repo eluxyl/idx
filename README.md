@@ -28,7 +28,11 @@ This folder now has a reusable, function-based pipeline for:
 - `run_full_mls_pipeline.py`
   - End-to-end runner
   - Runs mortgage enrichment first, then cleaning
-  - Includes argparse options for plot generation and cleaning parameter tuning
+  - Includes argparse options for plot generation, cleaning, and feature engineering
+
+- `mls_feature_engineering.py`
+  - Builds dashboard metrics from cleaned MLS data
+  - Generates segment summaries by property, location, and office dimensions
 
 ## Quick Start
 
@@ -49,6 +53,7 @@ Useful options (all have defaults):
 ```bash
 python run_full_mls_pipeline.py \
   --generate-plots \
+  --feature-engineering-output-dir . \
   --plot-output-dir . \
   --invalid-numeric-strategy remove \
   --drop-missing-column-threshold 0.5 \
@@ -65,6 +70,18 @@ python run_full_mls_pipeline.py
 python run_full_mls_pipeline.py --include-all-property-types
 ```
 
+Feature engineering runs by default and creates:
+
+- `engineered_sold_analysis_ready.csv`
+- `engineered_listings_analysis_ready.csv`
+- `feature_engineering_report.json`
+- `sold_property_segment_summary.csv` and `.json`
+- `sold_location_segment_summary.csv` and `.json`
+- `sold_office_segment_summary.csv` and `.json`
+- `listings_property_segment_summary.csv` and `.json`
+- `listings_location_segment_summary.csv` and `.json`
+- `listings_office_segment_summary.csv` and `.json`
+
 ### CLI Reference (run_full_mls_pipeline.py)
 
 | Argument | Default | Purpose |
@@ -79,6 +96,11 @@ python run_full_mls_pipeline.py --include-all-property-types
 | `--cleaned-sold-output` | `cleaned_sold_analysis_ready.csv` | Final cleaned sold output path |
 | `--cleaned-listings-output` | `cleaned_listings_analysis_ready.csv` | Final cleaned listings output path |
 | `--report-output` | `mls_cleaning_report.json` | Cleaning report JSON path |
+| `--engineered-sold-output` | `engineered_sold_analysis_ready.csv` | Feature-engineered sold output path |
+| `--engineered-listings-output` | `engineered_listings_analysis_ready.csv` | Feature-engineered listings output path |
+| `--feature-engineering-report-output` | `feature_engineering_report.json` | Feature engineering summary JSON path |
+| `--feature-engineering-output-dir` | `.` | Directory for segment summary CSV/JSON files |
+| `--disable-feature-engineering` | `False` | Skip engineered outputs and segment summaries |
 | `--invalid-numeric-strategy` | `remove` | Either `remove` or `flag` invalid numeric rows |
 | `--drop-missing-column-threshold` | `0.5` | Drop columns with missing rate >= threshold |
 | `--high-cardinality-threshold` | `0.9` | Drop object columns when unique-ratio exceeds threshold |
@@ -98,6 +120,10 @@ This will generate:
 - `cleaned_sold_analysis_ready.csv`
 - `cleaned_listings_analysis_ready.csv`
 - `mls_cleaning_report.json`
+- `engineered_sold_analysis_ready.csv`
+- `engineered_listings_analysis_ready.csv`
+- `feature_engineering_report.json`
+- segment summary CSV/JSON files for property, location, and office groupings
 
 ### Option B: Cleaning Only
 

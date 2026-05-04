@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import importlib
+import json
+import sys
+from pathlib import Path
 
-from mls_data_cleaning_pipeline import CleaningConfig, process_mls_files, summarize_for_console
-from mortgage import enrich_real_estate_data
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from idx.mls_data_cleaning_pipeline import CleaningConfig, load_dataset, process_mls_files, summarize_for_console
+from idx.mortgage import enrich_real_estate_data
+
+engineer_and_summarize = importlib.import_module("mls_feature_engineering").engineer_and_summarize
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,6 +71,31 @@ def parse_args() -> argparse.Namespace:
         "--report-output",
         default="mls_cleaning_report.json",
         help="Output JSON path for cleaning report.",
+    )
+    parser.add_argument(
+        "--engineered-sold-output",
+        default="engineered_sold_analysis_ready.csv",
+        help="Output CSV path for feature-engineered sold data.",
+    )
+    parser.add_argument(
+        "--engineered-listings-output",
+        default="engineered_listings_analysis_ready.csv",
+        help="Output CSV path for feature-engineered listings data.",
+    )
+    parser.add_argument(
+        "--feature-engineering-report-output",
+        default="feature_engineering_report.json",
+        help="Output JSON path for feature engineering report.",
+    )
+    parser.add_argument(
+        "--feature-engineering-output-dir",
+        default=".",
+        help="Directory for segment summary CSV/JSON files.",
+    )
+    parser.add_argument(
+        "--disable-feature-engineering",
+        action="store_true",
+        help="Skip feature engineering and segment summaries.",
     )
 
     parser.add_argument(
@@ -191,11 +224,49 @@ def main() -> None:
 
     print("\nCleaning complete.")
     print(summarize_for_console(summary))
+
+    feature_engineering_summary = None
+    if not args.disable_feature_engineering:
+        cleaned_sold_df = load_dataset(args.cleaned_sold_output)
+        cleaned_listings_df = load_dataset(args.cleaned_listings_output)
+
+        engineered_sold, sold_feature_summary = engineer_and_summarize(
+            cleaned_sold_df,
+            output_dir=args.feature_engineering_output_dir,
+            prefix="sold",
+        )
+        engineered_listings, listings_feature_summary = engineer_and_summarize(
+            cleaned_listings_df,
+            output_dir=args.feature_engineering_output_dir,
+            prefix="listings",
+        )
+
+        engineered_sold.to_csv(args.engineered_sold_output, index=False)
+        engineered_listings.to_csv(args.engineered_listings_output, index=False)
+
+        feature_engineering_summary = {
+            "sold": sold_feature_summary,
+            "listings": listings_feature_summary,
+            "outputs": {
+                "engineered_sold_output": args.engineered_sold_output,
+                "engineered_listings_output": args.engineered_listings_output,
+            },
+        }
+
+        Path(args.feature_engineering_report_output).write_text(
+            json.dumps(feature_engineering_summary, indent=2, default=str),
+            encoding="utf-8",
+        )
+
     print(f"Saved: {args.sold_with_rates_output}")
     print(f"Saved: {args.listings_with_rates_output}")
     print(f"Saved: {args.cleaned_sold_output}")
     print(f"Saved: {args.cleaned_listings_output}")
     print(f"Saved: {args.report_output}")
+    if feature_engineering_summary is not None:
+        print(f"Saved: {args.engineered_sold_output}")
+        print(f"Saved: {args.engineered_listings_output}")
+        print(f"Saved: {args.feature_engineering_report_output}")
 
 
 if __name__ == "__main__":
