@@ -81,6 +81,7 @@ Feature engineering runs by default and creates:
 - `listings_property_segment_summary.csv` and `.json`
 - `listings_location_segment_summary.csv` and `.json`
 - `listings_office_segment_summary.csv` and `.json`
+ - `*_with_outlier_flags.csv` and `*_iqr_filtered.csv` when IQR detection is enabled
 
 ### CLI Reference (run_full_mls_pipeline.py)
 
@@ -112,6 +113,9 @@ Feature engineering runs by default and creates:
 | `--generate-plots` | `False` | Generate histogram and boxplot PNGs |
 | `--plot-output-dir` | `.` | Directory where plots are saved |
 | `--plot-columns` | `ClosePrice ListPrice OriginalListPrice LivingArea LotSizeAcres BedroomsTotal BathroomsTotalInteger DaysOnMarket YearBuilt` | Columns used for optional plots |
+| `--iqr-enable` | `False` | Enable IQR outlier detection and save flagged/filtered outputs |
+| `--iqr-multiplier` | `1.5` | IQR multiplier used to compute lower/upper bounds |
+| `--iqr-columns` | `ClosePrice LivingArea DaysOnMarket` | Columns to apply IQR detection to (defaults used if omitted) |
 
 This will generate:
 
@@ -227,6 +231,21 @@ clean_df, clean_summary = clean_mls_dataframe(raw_df, dataset_name="sold", confi
 - date consistency flag counts
 - geographic flag counts
 - dtype confirmation for key date/numeric fields
+
+## IQR Outlier Detection (optional)
+
+When enabled via `--iqr-enable`, the cleaning pipeline computes IQR-based bounds for the configured columns (default: `ClosePrice`, `LivingArea`, `DaysOnMarket`) using the multiplier from `--iqr-multiplier` (default `1.5`). The pipeline will:
+
+- Add boolean flag columns named `<Column>_outlier_flag` to indicate rows outside the IQR bounds.
+- Save a flagged CSV alongside the normal cleaned output named `<cleaned_output>_with_outlier_flags.csv`.
+- Save a filtered CSV removing any rows flagged as IQR outliers or previously-marked invalid numeric rows named `<cleaned_output>_iqr_filtered.csv`.
+- Add an `iqr` section to `mls_cleaning_report.json` with per-column Q1/Q3/IQR/lower/upper, counts and percentages of outliers, medians before and after filtering, and paths to the saved flagged/filtered files.
+
+Use example:
+
+```bash
+python run_full_mls_pipeline.py --iqr-enable --iqr-multiplier 1.5
+```
 
 ## Notes
 

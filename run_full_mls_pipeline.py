@@ -173,6 +173,24 @@ def parse_args() -> argparse.Namespace:
         help="Columns used for optional distribution plots.",
     )
 
+    parser.add_argument(
+        "--iqr-enable",
+        action="store_true",
+        help="Enable IQR outlier detection and save flagged/filtered outputs.",
+    )
+    parser.add_argument(
+        "--iqr-multiplier",
+        type=float,
+        default=1.5,
+        help="IQR multiplier for outlier bounds (default 1.5).",
+    )
+    parser.add_argument(
+        "--iqr-columns",
+        nargs="+",
+        default=None,
+        help="Columns to apply IQR detection to (defaults used if omitted).",
+    )
+
     return parser.parse_args()
 
 
@@ -211,6 +229,9 @@ def main() -> None:
         generate_plots=args.generate_plots,
         plot_output_dir=args.plot_output_dir,
         plot_columns=args.plot_columns,
+        iqr_enabled=args.iqr_enable,
+        iqr_multiplier=args.iqr_multiplier,
+        iqr_columns=args.iqr_columns,
     )
 
     summary = process_mls_files(
