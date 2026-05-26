@@ -252,3 +252,17 @@ python run_full_mls_pipeline.py --iqr-enable --iqr-multiplier 1.5
 - `invalid_numeric_strategy="remove"` removes invalid rows after flagging them.
 - `invalid_numeric_strategy="flag"` keeps all rows and only marks invalid records.
 - The geographic plausibility check uses an approximate California bounding box.
+
+**Model (LightGBM)**
+
+- **File**: See [idx/gbm.py](idx/gbm.py) for the implementation and entry point.
+- **Purpose**: A gradient-boosted tree regressor (LightGBM) trained to predict `ClosePrice` on engineered sold data.
+- **Validation**: Uses a sequential walk‑forward cross-validation over `year_month` windows to evaluate temporal generalization.
+- **Target transform**: Applies a log1p transform to the `ClosePrice` during training and exponentiates predictions (`expm1`) before scoring to reduce outlier impact.
+- **Features used**: `OriginalListPrice`, `ListPrice`, `Latitude`, `Longitude`, `PropertyType`, `LivingArea`, `DaysOnMarket`, `FireplacesTotal`, `TaxAnnualAmount`, `YearBuilt`, `BathroomsTotalInteger`, `City`, `BedroomsTotal`, `PostalCode`, `rate_30yr_fixed`, `LotSizeAcres`, `mortgage_rate_mom_change`, `postal_prev_month_median`.
+- **Categorical handling**: `PostalCode`, `City`, and `PropertyType` are cast to categorical and passed to LightGBM as native categorical features.
+- **Model hyperparameters**: `n_estimators=300`, `learning_rate=0.05`, `max_depth=6`, `num_leaves=31`, `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`.
+- **Metrics reported**: Mean Absolute Error (MAE) and Root Mean Squared Error (RMSE) on each test month; an average is printed after cross-validation.
+- **Standalone run**: Running `python idx/gbm.py` will attempt to load `engineered_sold_analysis_ready_iqr_filtered.csv` and run the walk‑forward validation loop (ensure the engineered CSV exists in this folder).
+
+If you want, I can add a small notebook that trains a final model on all available months and exports a pickled model and feature importance plot.
