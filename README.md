@@ -265,4 +265,4 @@ python run_full_mls_pipeline.py --iqr-enable --iqr-multiplier 1.5
 - **Metrics reported**: Mean Absolute Error (MAE) and Root Mean Squared Error (RMSE) on each test month; an average is printed after cross-validation.
 - **Standalone run**: Running `python idx/gbm.py` will attempt to load `engineered_sold_analysis_ready_iqr_filtered.csv` and run the walk‑forward validation loop (ensure the engineered CSV exists in this folder).
 
-If you want, I can add a small notebook that trains a final model on all available months and exports a pickled model and feature importance plot.
+
